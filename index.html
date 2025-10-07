@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Birthday Paradox Visualizer — Animated Pair Drawing</title>
+<style>
+:root{
+--bg:#0f1724;
+--panel:#0b1220;
+--muted:#94a3b8;
+--accent:#60a5fa;
+--accent-2:#34d399;
+}
+html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;}
+body{display:flex;align-items:center;justify-content:center;background:var(--bg);color:#e6eef8}
+.app{max-width:1100px;width:100%;padding:20px;box-sizing:border-box;display:grid;grid-template-columns:320px 1fr;gap:20px}
+.panel{background:var(--panel);border-radius:12px;padding:16px;box-shadow:0 6px 30px rgba(2,6,23,.6);min-height:520px}
+.controls{display:flex;flex-direction:column;gap:12px}
+label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+input[type=number]{width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit;font-size:15px}
+button{padding:10px 12px;border-radius:10px;border:none;background:var(--accent);color:#04243b;font-weight:600;cursor:pointer}
+button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted);font-weight:600}
+.row{display:flex;gap:8px}
+.centerInfo{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:6px}
+.probValue{font-size:28px;font-weight:700;color:var(--accent-2)}
+.circleArea{position:relative;background:transparent;overflow:hidden;border-radius:12px;display:flex;align-items:center;justify-content:center}
+#viz{width:100%;height:720px;background:transparent;position:relative}
+.peopleLayer{position:absolute;inset:0;pointer-events:none}
+.person{position:absolute;transform-origin:center center;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:auto;transition:transform .2s;text-align:center;width:56px}
+.person .icon{font-size:32px;filter:drop-shadow(0 4px 12px rgba(0,0,0,.6));transition:transform .12s}
+.person .bday{font-size:12px;color:var(--muted);background:rgba(255,255,255,0.03);padding:4px 6px;border-radius:8px;backdrop-filter: blur(4px);white-space:nowrap}
+.highlight .icon{transform:scale(1.25);filter:drop-shadow(0 6px 18px rgba(52,211,153,.14))}
+.highlight .bday{background:#0b3a2a;color:#a7f3d0;border:1px solid rgba(255,255,255,0.04)}
+svg{position:absolute;inset:0;overflow:visible;pointer-events:none}
+.pairLine{stroke:rgba(148,163,184,0.06);stroke-width:1;transition:stroke-width .25s, stroke .25s, opacity .25s}
+.pairLine.showAll{stroke:rgba(148,163,184,0.06);stroke-width:1}
+.pairLine.match{stroke:#34d399;stroke-width:2.5;opacity:1}
+.pairLine.tempHighlight{stroke:var(--accent);stroke-width:2.5;opacity:1}
+.hud{position:absolute;right:12px;top:12px;background:rgba(2,6,23,0.5);padding:8px;border-radius:8px;color:var(--muted);font-size:13px}
+.small{font-size:12px;color:var(--muted)}
+.footerNote{font-size:12px;color:var(--muted);margin-top:8px}
+input[type=range]{width:100%}
+.bigButton{padding:12px 14px;font-size:14px}
+.centerDisplay{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:6px}
+.counts{display:flex;gap:12px;font-weight:700}
+.chip{padding:6px 10px;border-radius:10px;background:rgba(255,255,255,0.03);font-size:13px}
+@media (max-width:900px){.app{grid-template-columns:1fr; padding:12px}#viz{height:620px}.panel{min-height:initial}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="panel controls">
+    <div>
+      <label for="peopleCount">Number of people</label>
+      <input id="peopleCount" type="number" min="1" max="400" value="23" />
+    </div>
+
+    <div class="row">
+      <button id="calculateBtn" class="bigButton">Calculate</button>
+      <button id="showPairsBtn" class="secondary bigButton">Show comparisons</button>
+    </div>
+
+    <div class="row">
+      <button id="simulateBtn" class="bigButton">Simulate</button>
+      <div style="flex:1">
+        <label for="speedRange" class="small">Simulation speed (ms per trial)</label>
+        <input id="speedRange" type="range" min="50" max="2000" value="400" />
+      </div>
+    </div>
+
+    <div style="margin-top:6px">
+      <label for="pairsAnimRange" class="small">Pairs animation duration (s)</label>
+      <input id="pairsAnimRange" type="range" min="0" max="30" step="0.1" value="4" />
+      <div class="small" id="pairsAnimLabel">Duration: 4.0s</div>
+    </div>
+
+    <div class="footerNote">
+      Click <strong>Simulate</strong> to run repeated random trials. Click it again to stop. Clicking <strong>Calculate</strong> will stop & clear any simulation and compute the exact probability. Use the pairs animation slider to control how long it takes to draw all pair comparisons.
+    </div>
+  </div>
+
+  <div class="panel circleArea" id="vizPanel">
+    <div id="viz">
+      <svg id="linesSvg"></svg>
+      <div class="peopleLayer" id="peopleLayer"></div>
+
+      <div class="centerDisplay" id="centerDisplay" aria-hidden="true">
+        <div id="analyticDisplay" style="text-align:center">
+          <div class="small">Probability at least one shared birthday</div>
+          <div class="probValue" id="probValue">—</div>
+          <div class="small" id="analyticN">n = 0</div>
+        </div>
+
+        <div id="simDisplay" style="display:none;text-align:center">
+          <div class="small">Simulation</div>
+          <div class="counts">
+            <div class="chip" id="hits">Hits: 0</div>
+            <div class="chip" id="misses">Misses: 0</div>
+            <div class="chip" id="simProb">P: 0%</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud" id="hudInfo">Pairs lines: <span id="pairsCount">0</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Animated pair drawing version
+   - draws each pair line one at a time when showing comparisons
+   - adds slider to control total animation duration (0..30s). 0 = instant draw
+*/
+
+const peopleLayer = document.getElementById('peopleLayer');
+const linesSvg = document.getElementById('linesSvg');
+const peopleCountInput = document.getElementById('peopleCount');
+const calculateBtn = document.getElementById('calculateBtn');
+const showPairsBtn = document.getElementById('showPairsBtn');
+const simulateBtn = document.getElementById('simulateBtn');
+const speedRange = document.getElementById('speedRange');
+const probValue = document.getElementById('probValue');
+const analyticN = document.getElementById('analyticN');
+const pairsCountSpan = document.getElementById('pairsCount');
+const analyticDisplay = document.getElementById('analyticDisplay');
+const simDisplay = document.getElementById('simDisplay');
+const hitsElem = document.getElementById('hits');
+const missesElem = document.getElementById('misses');
+const simProbElem = document.getElementById('simProb');
+const pairsAnimRange = document.getElementById('pairsAnimRange');
+const pairsAnimLabel = document.getElementById('pairsAnimLabel');
+
+let people = []; // {el, cx, cy, angle, iconEl, bdayEl, id}
+let pairLines = []; // svg line elements for all pairs (light)
+let matchLines = []; // drawn lines for matching pairs in simulation
+let showAllPairs = false;
+let simRunning = false;
+let simHandle = null;
+let simStats = {hits:0, misses:0, trials:0};
+let pairAnimHandle = null; // controller for ongoing pair animation
+
+// emoji/icons with variety (skin tones & avatars)
+const ICONS = ["👩🏻‍🦰","👨🏿‍🦱","🧑🏼‍🦲","👩🏽‍🦳","👨🏻‍🦰","🧑🏾‍🦱","🧑🏿‍🦰","👩‍🦱","🧔🏽","👨🏽‍🦱","🧑🏻‍🦳","👩🏿‍🦱"];
+
+// months for birthday display
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const monthLengths = [31,28,31,30,31,30,31,31,30,31,30,31];
+
+function clearAll(){
+  peopleLayer.innerHTML = '';
+  stopPairAnimation();
+  while(linesSvg.firstChild) linesSvg.removeChild(linesSvg.firstChild);
+  people = []; pairLines = []; matchLines = [];
+  updatePairsCount();
+}
+
+function positionSvg(){
+  const rect = document.getElementById('viz').getBoundingClientRect();
+  linesSvg.setAttribute('width', rect.width);
+  linesSvg.setAttribute('height', rect.height);
+  linesSvg.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
+}
+
+// NEW: animate drawing each pair line one-at-a-time. If durationSeconds==0, draw instantly.
+async function drawAllPairLines(){
+  removePairLines();
+  positionSvg();
+  stopPairAnimation();
+  const n = people.length;
+  const totalPairs = Math.max(0, Math.floor(n*(n-1)/2));
+  const durationSeconds = parseFloat(pairsAnimRange.value) || 0;
+  pairsAnimLabel.textContent = `Duration: ${durationSeconds.toFixed(1)}s`;
+
+  if(totalPairs === 0){ updatePairsCount(); return; }
+
+  // Precompute all coordinate pairs so layout changes during animation don't affect draw
+  const coords = [];
+  for(let i=0;i<n;i++){
+    for(let j=i+1;j<n;j++){
+      coords.push({i,j,x1:people[i].cx,y1:people[i].cy,x2:people[j].cx,y2:people[j].cy});
+    }
+  }
+
+  if(durationSeconds <= 0){
+    // instant draw: create all light lines immediately
+    coords.forEach(c => {
+      const l = document.createElementNS("http://www.w3.org/2000/svg","line");
+      l.classList.add('pairLine','showAll');
+      l.setAttribute('x1', c.x1);
+      l.setAttribute('y1', c.y1);
+      l.setAttribute('x2', c.x2);
+      l.setAttribute('y2', c.y2);
+      linesSvg.appendChild(l);
+      pairLines.push(l);
+    });
+    updatePairsCount();
+    return;
+  }
+
+  // animated draw: highlight each line briefly then fade it into the 'showAll' light state.
+  const msPer = Math.max(6, Math.floor((durationSeconds*1000) / coords.length));
+  let cancelled = false;
+  pairAnimHandle = { cancel: () => { cancelled = true; } };
+
+  for(let idx=0; idx<coords.length; idx++){
+    if(cancelled) break;
+    const c = coords[idx];
+    // create the line as a TEMP highlight first
+    const l = document.createElementNS("http://www.w3.org/2000/svg","line");
+    l.classList.add('pairLine','tempHighlight');
+    l.setAttribute('x1', c.x1);
+    l.setAttribute('y1', c.y1);
+    l.setAttribute('x2', c.x2);
+    l.setAttribute('y2', c.y2);
+    l.style.opacity = '0';
+    linesSvg.appendChild(l);
+    // force paint then fade in
+    requestAnimationFrame(()=>{ l.style.opacity = '1'; });
+
+    // after msPer, turn it into a light line (keep it visible)
+    await new Promise(res => {
+      const t = setTimeout(()=>{
+        if(cancelled){
+          // remove it and exit
+          try{ l.remove(); }catch(e){}
+          res();
+          return;
+        }
+        l.classList.remove('tempHighlight');
+        l.classList.add('showAll');
+        // keep in pairLines collection
+        pairLines.push(l);
+        updatePairsCount();
+        res();
+      }, msPer);
+    });
+  }
+
+  pairAnimHandle = null;
+}
+
+function stopPairAnimation(){
+  if(pairAnimHandle && typeof pairAnimHandle.cancel === 'function') pairAnimHandle.cancel();
+  pairAnimHandle = null;
+}
+
+function drawAllPairLines_instant(){ drawAllPairLines(); }
+
+function removePairLines(){
+  pairLines.forEach(l=>l.remove());
+  pairLines = [];
+  updatePairsCount();
+}
+
+// NEW: update pairs counter display
+function updatePairsCount(){
+  const n = people.length || 0;
+  const totalPairs = Math.max(0, Math.floor(n*(n-1)/2));
+  if(showAllPairs){
+    // show theoretical number while animating/drawn
+    pairsCountSpan.textContent = totalPairs.toString();
+  } else {
+    pairsCountSpan.textContent = matchLines.length ? matchLines.length.toString() : '0';
+  }
+}
+
+// analytic probability calculation
+function analyticProbability(n){
+  if(n<=1) return 0;
+  if(n>365) return 1;
+  let pDistinct = 1;
+  for(let k=0;k<n;k++){
+    pDistinct *= (365 - k)/365;
+  }
+  return 1 - pDistinct;
+}
+function formatPercent(x){ return (x*100).toFixed(2) + '%'; }
+
+function layoutPeople(n){
+  clearAll();
+  const rect = document.getElementById('viz').getBoundingClientRect();
+  const cx = rect.width/2;
+  const cy = rect.height/2;
+  const radius = Math.min(cx,cy) - 90;
+  for(let i=0;i<n;i++){
+    const angle = (i/n) * Math.PI*2 - Math.PI/2;
+    const x = cx + radius * Math.cos(angle);
+    const y = cy + radius * Math.sin(angle);
+    const person = document.createElement('div');
+    person.className = 'person';
+    person.style.left = (x-28) + 'px';
+    person.style.top = (y-28) + 'px';
+    person.dataset.index = i;
+    const icon = document.createElement('div');
+    icon.className = 'icon';
+    icon.textContent = ICONS[i % ICONS.length];
+    const bday = document.createElement('div');
+    bday.className = 'bday';
+    bday.textContent = '';
+    person.appendChild(icon);
+    person.appendChild(bday);
+    peopleLayer.appendChild(person);
+    people.push({el: person, cx:x, cy:y, angle, iconEl:icon, bdayEl:bday, id:i});
+  }
+  positionSvg();
+  // if the user already asked to show comparisons, draw them now
+  if(showAllPairs) drawAllPairLines();
+  updatePairsCount();
+}
+
+function clampN(){ let n = parseInt(peopleCountInput.value) || 0; if(n<1) n=1; if(n>400) n=400; peopleCountInput.value=n; return n; }
+
+function onCalculate(){
+  stopSimulation();
+  const n = clampN();
+  layoutPeople(n);
+  // analytic
+  const p = analyticProbability(n);
+  probValue.textContent = formatPercent(p);
+  analyticN.textContent = `n = ${n}`;
+  analyticDisplay.style.display = 'block';
+  simDisplay.style.display = 'none';
+}
+
+function onShowPairs(){
+  if(showAllPairs){
+    showAllPairs = false;
+    showPairsBtn.textContent = 'Show comparisons';
+    stopPairAnimation();
+    removePairLines();
+  } else {
+    showAllPairs = true;
+    showPairsBtn.textContent = 'Hide comparisons';
+    // animated draw
+    drawAllPairLines();
+  }
+}
+
+function randomBirthday(){
+  const dayOfYear = Math.floor(Math.random()*365) + 1;
+  let d = dayOfYear;
+  let m = 0;
+  while(d > monthLengths[m]){ d -= monthLengths[m]; m++; }
+  return {month:m, day:d, text: `${MONTHS[m]} ${d}`, idx: dayOfYear-1};
+}
+
+// Only clears previous match highlights & lines (does NOT clear current birthday labels)
+function clearMatchHighlights(){
+  people.forEach(p=> p.el.classList.remove('highlight'));
+  matchLines.forEach(l=>l.remove());
+  matchLines = [];
+  updatePairsCount();
+}
+
+function stopSimulation(){
+  if(simRunning){
+    simRunning = false;
+    simulateBtn.textContent = 'Simulate';
+    if(simHandle) { clearTimeout(simHandle); simHandle = null; }
+  }
+}
+
+function startSimulation(){
+  const n = clampN();
+  layoutPeople(n);
+  // bday labels are empty now
+  simStats = {hits:0, misses:0, trials:0};
+  updateSimHUD();
+  analyticDisplay.style.display = 'none';
+  simDisplay.style.display = 'block';
+  simRunning = true;
+  simulateBtn.textContent = 'Stop';
+  runSimStep();
+}
+
+function updateSimHUD(){
+  hitsElem.textContent = `Hits: ${simStats.hits}`;
+  missesElem.textContent = `Misses: ${simStats.misses}`;
+  const total = simStats.hits + simStats.misses;
+  const p = total ? (simStats.hits/total) : 0;
+  simProbElem.textContent = `P: ${ (p*100).toFixed(2)}%`;
+}
+
+// main simulation loop
+function runSimStep(){
+  if(!simRunning) return;
+  const n = people.length;
+
+  // clear previous match visuals (but keep bday labels that will be re-set)
+  clearMatchHighlights();
+
+  // assign birthdays (overwrites bday labels)
+  const assigned = [];
+  for(let i=0;i<n;i++){
+    const bd = randomBirthday();
+    assigned[i] = bd.idx;
+    people[i].bdayEl.textContent = bd.text;
+  }
+
+  // map dayIndex -> list of people
+  const map = new Map();
+  assigned.forEach((d, i)=>{
+    if(!map.has(d)) map.set(d, []);
+    map.get(d).push(i);
+  });
+  const matchedGroups = [];
+  map.forEach((list)=>{
+    if(list.length>1) matchedGroups.push(list);
+  });
+
+  if(matchedGroups.length>0) simStats.hits++; else simStats.misses++;
+  simStats.trials++;
+
+  // highlight persons and draw lines between every matching pair (within matched groups)
+  matchedGroups.forEach(group=>{
+    for(const i of group) people[i].el.classList.add('highlight');
+    for(let a=0;a<group.length;a++){
+      for(let b=a+1;b<group.length;b++){
+        const i = group[a], j = group[b];
+        const l = document.createElementNS("http://www.w3.org/2000/svg","line");
+        l.classList.add('pairLine','match');
+        l.setAttribute('x1', people[i].cx);
+        l.setAttribute('y1', people[i].cy);
+        l.setAttribute('x2', people[j].cx);
+        l.setAttribute('y2', people[j].cy);
+        linesSvg.appendChild(l);
+        matchLines.push(l);
+      }
+    }
+  });
+
+  updateSimHUD();
+  updatePairsCount();
+
+  const ms = parseInt(speedRange.value) || 400;
+  simHandle = setTimeout(()=>{ if(simRunning) runSimStep(); }, ms);
+}
+
+// Resize handling: recompute positions & redraw lines if needed
+window.addEventListener('resize', ()=>{
+  if(people.length) {
+    const n = people.length;
+    const rect = document.getElementById('viz').getBoundingClientRect();
+    const cx = rect.width/2;
+    const cy = rect.height/2;
+    const radius = Math.min(cx,cy) - 90;
+    people.forEach((p,i)=>{
+      const angle = (i/n) * Math.PI*2 - Math.PI/2;
+      const x = cx + radius * Math.cos(angle);
+      const y = cy + radius * Math.sin(angle);
+      p.cx = x; p.cy = y; p.angle = angle;
+      p.el.style.left = (x-28) + 'px';
+      p.el.style.top = (y-28) + 'px';
+    });
+    // redraw lines
+    if(showAllPairs) drawAllPairLines();
+    // remove and recompute match lines (they depend on coordinates)
+    clearMatchHighlights();
+    positionSvg();
+  }
+});
+
+// UI event hookups
+calculateBtn.addEventListener('click', onCalculate);
+showPairsBtn.addEventListener('click', onShowPairs);
+simulateBtn.addEventListener('click', ()=>{
+  if(simRunning) stopSimulation(); else startSimulation();
+});
+
+pairsAnimRange.addEventListener('input', ()=>{
+  pairsAnimLabel.textContent = `Duration: ${parseFloat(pairsAnimRange.value).toFixed(1)}s`;
+});
+
+peopleCountInput.addEventListener('change', ()=>{
+  const n = clampN();
+  layoutPeople(n);
+  const p = analyticProbability(n);
+  probValue.textContent = formatPercent(p);
+  analyticN.textContent = `n = ${n}`;
+});
+peopleCountInput.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') onCalculate();
+});
+
+// initialize
+(function init(){
+  const n = clampN();
+  layoutPeople(n);
+  const p = analyticProbability(n);
+  probValue.textContent = formatPercent(p);
+  analyticN.textContent = `n = ${n}`;
+  analyticDisplay.style.display = 'block';
+  simDisplay.style.display = 'none';
+})();
+</script>
+</body>
+</html>
