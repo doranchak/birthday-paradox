@@ -1,2 +1,2 @@
 # birthday-paradox
-Birthday paradox visualization and simulator.  Made for an episode of "Let's Crack Zodiac".
+[Birthday paradox](https://en.wikipedia.org/wiki/Birthday_problem) visualization and simulator.  Made for an episode of "Let's Crack Zodiac".
